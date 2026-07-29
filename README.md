@@ -113,9 +113,13 @@ tests/
 | 部署 | Docker Compose 多客户隔离部署,GitHub Actions CI | 本地运行 |
 | 数据 | 真实 SerpAPI、客户知识库、WordPress 站点 | Mock 数据、示例 profile |
 
-## 截图
+## 运行实录
 
-见 [`assets/`](assets/)——生产环境操作台与产物截图(已脱敏)。
+一次完整 mock 运行的各阶段产物(SERP 研究 → 大纲意图映射 → 硬性审核 → 发布载荷):
+
+![流水线运行报告](assets/pipeline-run.png)
+
+> 生产环境(Streamlit 操作台、多客户管理后台)截图涉及客户标识,按需脱敏后补充。
 
 ---
 

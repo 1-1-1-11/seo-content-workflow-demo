@@ -9,6 +9,10 @@ from __future__ import annotations
 import json
 
 
+def _an(word: str) -> str:
+    return "an" if word[:1].lower() in "aeiou" else "a"
+
+
 class MockLLM:
     """按任务类型返回确定性结果。输出格式与真实 LLM 约定一致(JSON / markdown)。"""
 
@@ -27,12 +31,12 @@ class MockLLM:
                 "intent": "commercial",
                 "competitor_titles": [
                     f"Top 10 {kw} Manufacturers and Suppliers",
-                    f"How to Choose a {kw}: Buyer's Guide",
+                    f"How to Choose {_an(kw)} {kw}: Buyer's Guide",
                     f"{kw} Price, Specifications & Applications",
                 ],
                 "paa_questions": [
-                    f"What is a {kw} used for?",
-                    f"How much does a {kw} cost?",
+                    f"What is {_an(kw)} {kw} used for?",
+                    f"How much does {_an(kw)} {kw} cost?",
                     f"What are the types of {kw}?",
                 ],
             },
@@ -47,7 +51,7 @@ class MockLLM:
                 "h1": f"{kw.title()}: Specifications, Selection & Buying Guide",
                 "sections": [
                     {
-                        "h2": f"What Is a {kw.title()}?",
+                        "h2": f"What Is {_an(kw).title()} {kw.title()}?",
                         "intent": "informational",
                         "key_points": ["definition", "working principle", "core components"],
                     },
