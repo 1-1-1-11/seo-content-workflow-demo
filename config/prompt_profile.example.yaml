@@ -1,0 +1,13 @@
+# 品牌改写 Profile 示例(脱敏)
+# 生产环境中每个客户一份独立 profile,与代码分离管理
+brand_voice: "technical, plain-spoken, no hype"
+company_kb:
+  positioning: "OEM industrial motor manufacturer, 20 years"
+  differentiators:
+    - "IE3/IE4 full range"
+    - "OEM customization"
+    - "48h quote response"
+  forbidden_claims:
+    - "largest"
+    - "No.1"
+    - "guaranteed"
