@@ -1,126 +1,52 @@
-# SEO Content Workflow · Demo
+# seo-content-workflow-demo
 
-> 从**一个英文关键词**到**一篇可发布 SEO 草稿**的多智能体内容流水线。
-> 本仓库是生产系统的**脱敏教学版**:架构模式与工程边界与生产一致,代码为公开重写,不包含任何客户数据、业务提示词与密钥。
+关键词进去，一篇能检查的 SEO 草稿出来。这是生产流水线的脱敏版：结构差不多，客户数据、真实提示词和密钥都不在这里。本地 mock 就能跑完。
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
-![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-1C3C3C)
-![Pydantic](https://img.shields.io/badge/Schema-Pydantic_v2-E92063)
-![Tests](https://img.shields.io/badge/Tests-pytest-0A9EDC)
-![License](https://img.shields.io/badge/License-MIT-green)
-
----
-
-## 它解决什么问题
-
-外贸内容生产的瓶颈不是"写一篇文章",而是**每一步都可复核**:
-
-> 选题依据是否来自真实 SERP?结构是否覆盖搜索意图?通用行业稿如何改写成客户品牌稿?发布前谁来把关?
-
-这条流水线把内容生产拆成 6 个可独立检查的阶段,每个阶段产出**结构化中间产物(artifact)**,人工可以在任意阶段介入,而不是面对一个黑盒。
-
-```mermaid
-flowchart LR
-    KW([关键词]) --> SERP[SERP 研究<br/>竞品标题 · PAA · 意图]
-    SERP --> ARCH[架构 Agent<br/>H1/H2 大纲 · 搜索意图映射]
-    ARCH --> WRITER[写作 Agent<br/>正文草稿]
-    WRITER --> BRAND[品牌改写 Agent<br/>Prompt Profile + 公司知识库]
-    BRAND --> AUDIT[审核 Agent<br/>事实边界 · 内链 · SEO meta]
-    AUDIT --> DRAFT([WordPress 草稿<br/>人工确认后创建])
-```
-
-**人工边界是设计的一部分**:流水线默认只产出 `preview` 产物;WordPress 草稿只在人工确认后,通过独立的二次动作创建——系统从不自动发布。
-
-## 快速开始(无需 API Key)
+## 怎么跑
 
 ```bash
 git clone https://github.com/1-1-1-11/seo-content-workflow-demo.git
 cd seo-content-workflow-demo
-
-python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-
-# Mock 模式:内置确定性假数据,完整跑通 6 个阶段
 python -m seo_demo.run --keyword "industrial gearbox motor" --mode mock
 ```
 
-运行后在 `artifacts/<run_id>/` 查看每个阶段的中间产物:
+跑完看 `artifacts/<run_id>/`：
 
 ```text
-artifacts/20260729_153000_gearbox/
-├── 01_serp.json        # SERP 研究结果:竞品标题、PAA 问题、搜索意图
-├── 02_outline.json     # 文章大纲:H1/H2 结构与意图映射
-├── 03_draft.md         # 初稿
-├── 04_brand_draft.md   # 按 prompt profile 改写后的品牌稿
-└── 05_audit.json       # 审核结果:通过项 / 需人工处理项
+01_serp.json        SERP：竞品标题、PAA、意图
+02_outline.json     大纲
+03_draft.md         初稿
+04_brand_draft.md   按品牌配置改写后的稿
+05_audit.json       审核结果
+06_publish_payload.json
 ```
 
-## 三种运行模式
+想把最近一次跑数渲成单页报告：
 
-| 模式 | 行为 | 用途 |
-|---|---|---|
-| `mock` | 内置确定性数据,不调用任何外部 API | 演示、CI、单元测试 |
-| `preview` | 调用真实 SERP/LLM API,只产出本地产物 | 日常生产 |
-| `publish` | 在 `preview` 基础上,人工确认后创建 WordPress 草稿 | 发布(二次动作) |
-
-## 品牌改写:Prompt Profile + 公司知识库
-
-通用行业稿 → 客户品牌稿,靠两份**与客户代码分离**的配置:
-
-```yaml
-# config/prompt_profile.example.yaml
-brand_voice: "technical, plain-spoken, no hype"
-company_kb:
-  positioning: "OEM industrial motor manufacturer, 20 years"
-  differentiators: ["IE3/IE4 full range", "OEM customization", "48h quote response"]
-  forbidden_claims: ["largest", "No.1", "guaranteed"]   # 审核 Agent 会拦截
+```bash
+python gen_report.py
+# 打开 assets/_run_report.html
 ```
 
-`forbidden_claims` 由审核 Agent 强制执行——**营销词不是"建议不用",是"写了就过不了审"**。
+![一次 mock 跑完的报告](assets/pipeline-run.png)
 
-## 工程要点
+## 流水线在干什么
 
-| 设计 | 说明 |
-|---|---|
-| 显式状态机 | LangGraph `StateGraph`,阶段即节点,产物即状态;新增阶段 = 加一个节点,不改动既有节点 |
-| 全链路结构化 | 阶段间传递 Pydantic 模型而非裸文本,schema 变化在类型层暴露 |
-| 每阶段可复核 | 所有中间产物落盘为 artifact,支持"只重跑某一阶段" |
-| 失败边界 | LLM 输出解析失败 → 该阶段标记失败并保留原始输出,不静默降级、不伪造结果 |
-| 可测试 | Mock 模式全链路确定性,CI 中不依赖任何外部服务 |
+六步：SERP → 大纲 → 初稿 → 品牌改写 → 审核 → 发布载荷。每步产物落盘，想卡在哪步看就看哪步。
 
-## 目录结构
+品牌改写靠两份和代码分开的配置（见 `config/prompt_profile.example.yaml`）：语气、公司怎么讲自己、以及一串**不准写**的词。审核阶段会硬拦 `forbidden_claims`，不是提醒，是过不了。
+
+默认只出本地 preview。WordPress 草稿要人确认后再建，系统自己不会发。
+
+## 和正式版差在哪
+
+正式版节点更多，还有操作台和多客户后台；这里收成六步 + CLI，方便公开看。数据全是假的。
 
 ```text
 src/seo_demo/
-├── state.py          # WorkflowState:贯穿流水线的显式状态
-├── models.py         # SerpResult / Outline / AuditReport 等 Pydantic 模型
-├── mock_llm.py       # 确定性假 LLM:mock 模式与测试使用
-├── nodes.py          # 6 个阶段节点的实现
-├── graph.py          # StateGraph 装配:节点、边、入口
-└── run.py            # CLI 入口:--keyword --mode
-config/
-└── prompt_profile.example.yaml
-tests/
-└── test_pipeline.py  # 全链路 mock 测试 + 审核拦截测试
+  state.py / models.py / nodes.py / graph.py / run.py / mock_llm.py
+config/prompt_profile.example.yaml
+tests/test_pipeline.py
 ```
-
-## 与生产版本的差异
-
-| 维度 | 生产版本(实习期间开发) | 本 Demo |
-|---|---|---|
-| 流水线规模 | 8 节点(含选题排序、配图提示词、发布载荷) | 6 节点,保留核心链路 |
-| 操作界面 | Streamlit 操作台 + 多客户管理后台 | CLI |
-| 部署 | Docker Compose 多客户隔离部署,GitHub Actions CI | 本地运行 |
-| 数据 | 真实 SerpAPI、客户知识库、WordPress 站点 | Mock 数据、示例 profile |
-
-## 运行实录
-
-一次完整 mock 运行的各阶段产物(SERP 研究 → 大纲意图映射 → 硬性审核 → 发布载荷):
-
-![流水线运行报告](assets/pipeline-run.png)
-
-> 生产环境(Streamlit 操作台、多客户管理后台)截图涉及客户标识,按需脱敏后补充。
-
----
-
-*Demo code is a public rewrite of architecture patterns from a production system; no client data, prompts, or credentials included.*
