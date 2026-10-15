@@ -1,6 +1,6 @@
 # seo-content-workflow-demo
 
-关键词进去，一篇能检查的 SEO 草稿出来。这是生产流水线的脱敏版：结构差不多，客户数据、真实提示词和密钥都不在这里。本地 mock 就能跑完。
+外贸站 SEO 内容流水线的脱敏演示：关键词跑完后，落盘大纲、草稿、审核结果和发布载荷。客户数据、真实提示词和密钥不在仓库里；本地 mock 即可跑通。
 
 ## 怎么跑
 
@@ -30,7 +30,7 @@ python gen_report.py
 # 打开 assets/_run_report.html
 ```
 
-![一次 mock 跑完的报告](assets/pipeline-run.png)
+![一次 mock 跑次的报告页](assets/pipeline-run.png)
 
 ## 流水线在干什么
 
