@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from .mock_llm import MockLLM
 from .models import AuditReport, BrandProfile, Check, Outline, PublishPayload, SerpResult
 from .state import WorkflowState
+from .textutil import article_intro, find_forbidden_claims, slugify
 
 _llm = MockLLM()
 
@@ -77,19 +78,26 @@ def audit(state: WorkflowState) -> dict:
         return {}
     profile = BrandProfile.model_validate(state["profile"])
     text = state["brand_draft"]
-    lowered = text.lower()
+    body = text.lstrip()
+    hits = find_forbidden_claims(text, profile.forbidden_claims)
+    h1_count = len(re.findall(r"(?m)^# ", body))
+    h2_count = len(re.findall(r"(?m)^## ", text))
 
     checks = [
         Check(
             name="forbidden_claims",
-            ok=not any(c.lower() in lowered for c in profile.forbidden_claims),
-            detail=", ".join(c for c in profile.forbidden_claims if c.lower() in lowered) or "clean",
+            ok=not hits,
+            detail=", ".join(hits) if hits else "clean",
         ),
-        Check(name="has_h1", ok=text.lstrip().startswith("# "), detail="exactly one H1 required"),
+        Check(
+            name="has_h1",
+            ok=h1_count == 1 and body.startswith("# "),
+            detail=f"found {h1_count} H1, need exactly 1",
+        ),
         Check(
             name="min_sections",
-            ok=len(re.findall(r"^## ", text, flags=re.M)) >= 4,
-            detail=f"found {len(re.findall(r'^## ', text, flags=re.M))} H2 sections, need >= 4",
+            ok=h2_count >= 4,
+            detail=f"found {h2_count} H2 sections, need >= 4",
         ),
         Check(name="min_length", ok=len(text) >= 800, detail=f"{len(text)} chars, need >= 800"),
     ]
@@ -103,16 +111,16 @@ def publish_prepare(state: WorkflowState) -> dict:
         return {}
     audit_report = AuditReport.model_validate(state["audit"])
     if not audit_report.passed:
-        return _record_error(state, "publish_prepare", f"audit blocked: {audit_report.failed_checks}")
+        failed = ", ".join(check.name for check in audit_report.failed_checks) or "unknown"
+        return _record_error(state, "publish_prepare", f"audit blocked: {failed}")
 
     text = state["brand_draft"]
     title = text.lstrip().splitlines()[0].lstrip("# ").strip()
-    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    intro = next((ln for ln in text.splitlines() if ln.strip() and not ln.startswith("#")), "")
     payload = PublishPayload(
         title=title,
-        slug=slug,
-        meta_description=intro[:155],
+        slug=slugify(title, sep="-", max_len=80),
+        meta_description=article_intro(text),
         content=text,
+        status="draft",
     )
     return {"publish_payload": payload.model_dump()}

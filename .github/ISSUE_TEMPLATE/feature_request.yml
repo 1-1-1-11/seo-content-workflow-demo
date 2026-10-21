@@ -1,0 +1,17 @@
+name: 建议
+description: 提议一个仍然适合公开演示仓库的改动
+title: "feat: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决什么
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议的做法
+      description: 演示仓库不接入真实客户数据，也不要默认开启自动发布。
+    validations:
+      required: true

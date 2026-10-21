@@ -1,17 +1,20 @@
-# -*- coding: utf-8 -*-
-"""从最新一次 artifacts 生成单页运行报告 HTML（用于 README 截图）。"""
+"""从一次 artifacts 跑次生成单页运行报告 HTML（用于 README 截图）。"""
+
+from __future__ import annotations
+
+import argparse
 import html as html_lib
 import json
 import re
+import sys
 from pathlib import Path
 
-run_dir = sorted(Path("artifacts").iterdir())[-1]
-serp = json.loads((run_dir / "01_serp.json").read_text(encoding="utf-8"))
-outline = json.loads((run_dir / "02_outline.json").read_text(encoding="utf-8"))
-audit = json.loads((run_dir / "05_audit.json").read_text(encoding="utf-8"))
-payload = json.loads((run_dir / "06_publish_payload.json").read_text(encoding="utf-8"))
-brand = (run_dir / "04_brand_draft.md").read_text(encoding="utf-8")
-
+REQUIRED = (
+    "01_serp.json",
+    "02_outline.json",
+    "04_brand_draft.md",
+    "05_audit.json",
+)
 CHECK_LABELS = {
     "forbidden_claims": "禁用表述",
     "has_h1": "标题结构",
@@ -23,18 +26,15 @@ INTENT_LABELS = {
     "commercial": "商业",
     "transactional": "转化",
 }
-STAGES = [
-    ("检索", True),
-    ("大纲", True),
-    ("初稿", True),
-    ("品牌改写", True),
-    ("审核", True),
-    ("待发布", True),
-]
+STAGES = ("检索", "大纲", "初稿", "品牌改写", "审核", "待发布")
 
 
-def esc(s: str) -> str:
-    return html_lib.escape(s, quote=True)
+class ReportError(Exception):
+    """产物目录缺失或跑次不完整。"""
+
+
+def esc(value: object) -> str:
+    return html_lib.escape("" if value is None else str(value), quote=True)
 
 
 def md_to_simple_html(md: str) -> str:
@@ -44,13 +44,13 @@ def md_to_simple_html(md: str) -> str:
     in_ul = False
     in_bq = False
 
-    def close_ul():
+    def close_ul() -> None:
         nonlocal in_ul
         if in_ul:
             out.append("</ul>")
             in_ul = False
 
-    def close_bq():
+    def close_bq() -> None:
         nonlocal in_bq
         if in_bq:
             out.append("</blockquote>")
@@ -92,41 +92,112 @@ def md_to_simple_html(md: str) -> str:
     return "\n".join(out)
 
 
-steps_html = "".join(
-    f'<li class="done"><span class="n">{i}</span>{label}</li>'
-    for i, (label, _) in enumerate(STAGES, 1)
-)
-competitors = "".join(f"<li>{esc(t)}</li>" for t in serp["competitor_titles"][:5])
-paa = "".join(f"<li>{esc(q)}</li>" for q in serp["paa_questions"][:4])
-sections = "".join(
-    "<tr>"
-    f"<td>{esc(s['h2'])}</td>"
-    f"<td class='mute'>{esc(INTENT_LABELS.get(s['intent'], s['intent']))}</td>"
-    "</tr>"
-    for s in outline["sections"]
-)
-checks = "".join(
-    "<tr>"
-    f"<td>{esc(CHECK_LABELS.get(c['name'], c['name']))}</td>"
-    f"<td class='{'ok' if c['ok'] else 'bad'}'>{'通过' if c['ok'] else '未通过'}</td>"
-    f"<td class='mute'>{esc(c['detail'])}</td>"
-    "</tr>"
-    for c in audit["checks"]
-)
-draft_html = md_to_simple_html(brand)
-audit_state = "审核通过" if audit.get("passed") else "审核未过"
-audit_cls = "ok" if audit.get("passed") else "bad"
-status_cn = {"draft": "草稿", "publish": "已发布"}.get(payload["status"], payload["status"])
-meta = payload.get("meta_description") or ""
-meta_short = meta.replace("\n", " ")[:80]
-if len(meta) > 80:
-    meta_short += "…"
+def _complete(path: Path) -> bool:
+    return path.is_dir() and all((path / name).is_file() for name in REQUIRED)
 
-page = f"""<!doctype html>
+
+def resolve_run_dir(artifacts: Path, run: str | None = None) -> Path:
+    if not artifacts.is_dir():
+        raise ReportError(f"找不到产物目录 {artifacts}。请先运行 python -m seo_demo.run。")
+    if run:
+        path = artifacts / run
+        if not _complete(path):
+            raise ReportError(f"跑次不完整或不存在: {path.name}")
+        return path
+    candidates = sorted((p for p in artifacts.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+    for path in candidates:
+        if _complete(path):
+            return path
+    raise ReportError(
+        f"{artifacts} 里没有完整跑次（需要 01_serp.json、02_outline.json、04_brand_draft.md、05_audit.json）。"
+    )
+
+
+def _read_json(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ReportError(f"无法读取 {path.name}") from exc
+    if not isinstance(data, dict):
+        raise ReportError(f"{path.name} 必须是 JSON 对象")
+    return data
+
+
+def _as_list(value: object) -> list:
+    if not isinstance(value, list):
+        return []
+    return value
+
+
+def render_report(run_dir: Path) -> str:
+    serp = _read_json(run_dir / "01_serp.json")
+    outline = _read_json(run_dir / "02_outline.json")
+    audit = _read_json(run_dir / "05_audit.json")
+    brand = (run_dir / "04_brand_draft.md").read_text(encoding="utf-8")
+    payload_path = run_dir / "06_publish_payload.json"
+    payload = _read_json(payload_path) if payload_path.is_file() else None
+
+    done = [
+        True,
+        True,
+        (run_dir / "03_draft.md").is_file(),
+        True,
+        True,
+        payload is not None,
+    ]
+    steps_html = "".join(
+        f'<li class="{"done" if ok else ""}"><span class="n">{i}</span>{label}</li>'
+        for i, (label, ok) in enumerate(zip(STAGES, done, strict=True), 1)
+    )
+    competitors = "".join(f"<li>{esc(title)}</li>" for title in _as_list(serp.get("competitor_titles"))[:5])
+    paa = "".join(f"<li>{esc(question)}</li>" for question in _as_list(serp.get("paa_questions"))[:4])
+    sections = "".join(
+        "<tr>"
+        f"<td>{esc(section.get('h2', ''))}</td>"
+        f"<td class='mute'>{esc(INTENT_LABELS.get(str(section.get('intent', '')), section.get('intent', '')))}</td>"
+        "</tr>"
+        for section in _as_list(outline.get("sections"))
+        if isinstance(section, dict)
+    )
+    checks = "".join(
+        "<tr>"
+        f"<td>{esc(CHECK_LABELS.get(str(check.get('name', '')), check.get('name', '')))}</td>"
+        f"<td class='{'ok' if check.get('ok') else 'bad'}'>{'通过' if check.get('ok') else '未通过'}</td>"
+        f"<td class='mute'>{esc(check.get('detail', ''))}</td>"
+        "</tr>"
+        for check in _as_list(audit.get("checks"))
+        if isinstance(check, dict)
+    )
+    draft_html = md_to_simple_html(brand)
+    audit_state = "审核通过" if audit.get("passed") else "审核未过"
+    audit_cls = "ok" if audit.get("passed") else "bad"
+    if payload is None:
+        status_cn = "未生成"
+        payload_title = "—"
+        payload_slug = "—"
+        meta_short = "审核未通过或前序阶段失败，没有发布载荷。"
+        payload_hint = "未生成"
+        payload_note = "当前没有发布载荷。"
+    else:
+        status_cn = {"draft": "草稿", "publish": "已发布"}.get(
+            str(payload.get("status", "")),
+            str(payload.get("status", "")),
+        )
+        payload_title = str(payload.get("title", ""))
+        payload_slug = str(payload.get("slug", ""))
+        meta = str(payload.get("meta_description") or "")
+        meta_short = meta.replace("\n", " ")[:80]
+        if len(meta) > 80:
+            meta_short += "…"
+        payload_hint = f"status = {payload.get('status', '')}"
+        payload_note = "当前为草稿。确认文案后再建 WordPress 草稿。"
+
+    keyword = esc(serp.get("keyword", ""))
+    return f"""<!doctype html>
 <html lang="zh"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>内容流水线 · {esc(serp['keyword'])}</title>
+<title>内容流水线 · {keyword}</title>
 <style>
 :root {{
   --bg:#f5f5f4;
@@ -233,7 +304,7 @@ ul.plain li{{margin:3px 0}}
 </head><body>
 <div class="top">
   <div class="brand">内容流水线</div>
-  <div class="meta">{esc(serp['keyword'])} · 本地演示</div>
+  <div class="meta">{keyword} · 本地演示</div>
   <div class="badge {audit_cls}">{audit_state}</div>
 </div>
 <div class="wrap">
@@ -249,14 +320,14 @@ ul.plain li{{margin:3px 0}}
         <table>{checks}</table>
       </div>
       <div class="panel">
-        <h2>发布信息 <span class="hint">status = draft</span></h2>
+        <h2>发布信息 <span class="hint">{esc(payload_hint)}</span></h2>
         <div class="kv">
-          <div class="row"><span class="k">标题</span><span class="v">{esc(payload['title'])}</span></div>
-          <div class="row"><span class="k">路径</span><span class="v">{esc(payload['slug'])}</span></div>
+          <div class="row"><span class="k">标题</span><span class="v">{esc(payload_title)}</span></div>
+          <div class="row"><span class="k">路径</span><span class="v">{esc(payload_slug)}</span></div>
           <div class="row"><span class="k">状态</span><span class="v">{esc(status_cn)}</span></div>
           <div class="row"><span class="k">摘要</span><span class="v mute">{esc(meta_short)}</span></div>
         </div>
-        <p class="mute" style="margin-top:10px;font-size:12px">当前为草稿。确认文案后再建 WordPress 草稿。</p>
+        <p class="mute" style="margin-top:10px;font-size:12px">{esc(payload_note)}</p>
       </div>
     </div>
   </div>
@@ -273,11 +344,29 @@ ul.plain li{{margin:3px 0}}
       <table>{sections}</table>
     </div>
   </div>
-  <div class="foot">产物目录 artifacts/{esc(run_dir.name)} · 本地 mock 跑次</div>
+  <div class="foot">产物目录 {esc(run_dir.parent.name)}/{esc(run_dir.name)} · 本地 mock 跑次</div>
 </div>
 </body></html>
 """
 
-out = Path("assets") / "_run_report.html"
-out.write_text(page, encoding="utf-8")
-print(out.resolve())
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="从流水线产物生成单页 HTML 报告")
+    parser.add_argument("--artifacts", type=Path, default=Path("artifacts"))
+    parser.add_argument("--run", default=None, help="artifacts 下的 run 目录名；默认选最新一次完整跑次")
+    parser.add_argument("--out", type=Path, default=Path("assets") / "_run_report.html")
+    args = parser.parse_args(argv)
+    try:
+        run_dir = resolve_run_dir(args.artifacts, args.run)
+        page = render_report(run_dir)
+    except ReportError as exc:
+        print(f"[report] {exc}", file=sys.stderr)
+        return 1
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    args.out.write_text(page, encoding="utf-8")
+    print(args.out)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
