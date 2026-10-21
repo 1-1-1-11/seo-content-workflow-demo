@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "seo-content-workflow-demo"
+version = "0.1.0"
+description = "Offline LangGraph demo of an SEO content pipeline. No customer data or live credentials."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "Junyi Xu" }]
+keywords = ["seo", "langgraph", "demo"]
+dependencies = [
+  "langgraph>=0.2.60,<2",
+  "pydantic>=2,<3",
+  "PyYAML>=6,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.6",
+]
+
+[project.scripts]
+seo-demo = "seo_demo.run:main"
+
+[project.urls]
+Homepage = "https://github.com/1-1-1-11/seo-content-workflow-demo"
+Repository = "https://github.com/1-1-1-11/seo-content-workflow-demo"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["artifacts", ".venv", "build", "dist"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

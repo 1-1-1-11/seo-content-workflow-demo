@@ -85,8 +85,8 @@ class MockLLM:
         outline = payload["outline"]
         lines = [f"# {outline['h1']}", ""]
         lines.append(
-            f"Selecting the right equipment starts with understanding your load profile. "
-            f"This guide walks through specifications, applications, and selection criteria."
+            "Selecting the right equipment starts with understanding your load profile. "
+            "This guide walks through specifications, applications, and selection criteria."
         )
         lines.append("")
         for sec in outline["sections"]:
